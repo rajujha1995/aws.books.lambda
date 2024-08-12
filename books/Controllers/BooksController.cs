@@ -76,6 +76,7 @@ public class BooksController : ControllerBase
         {
             return BadRequest("Image name is required.");
         }
+
         var doesS3BucketExist = await _s3Client.DoesS3BucketExistAsync(_bucketName);
         if (!doesS3BucketExist) return NotFound($"Bucket {_bucketName} does not exist.");
 
@@ -83,37 +84,48 @@ public class BooksController : ControllerBase
         {
             BucketName = _bucketName,
             Key = image.FileName,
-            InputStream = image.OpenReadStream()
+            InputStream = image.OpenReadStream(),
+            ContentType = image.ContentType,
         };
 
-        putObjectRequest.Metadata.Add("Content-Type", image.ContentType);
         var imageUploadStatus = await _s3Client.PutObjectAsync(putObjectRequest);
 
         if (imageUploadStatus.HttpStatusCode == HttpStatusCode.OK)
         {
-            var listObjectsV2Request = new ListObjectsV2Request
+            var objectUrl = $"https://{_bucketName}.s3.amazonaws.com/{image.FileName}";
+
+            var imageDetails = new HandleS3Images
             {
-                BucketName = _bucketName,
-                Prefix = image.FileName
+                ImageName = image.FileName,
+                ImagePresignedUrl = objectUrl
             };
-            var listObjects = await _s3Client.ListObjectsV2Async(listObjectsV2Request);
 
-            var s3ObjectsDetails = listObjects.S3Objects.Select(s =>
-            {
-                var urlRequest = new GetPreSignedUrlRequest
-                {
-                    BucketName = _bucketName,
-                    Key = s.Key,
-                    Expires = DateTime.UtcNow.AddYears(1)
-                };
-                return new HandleS3Images
-                {
-                    ImageName = s.Key,
-                    ImagePresignedUrl = _s3Client.GetPreSignedURL(urlRequest),
-                };
-            });
+            return Ok(imageDetails);
 
-            return Ok(s3ObjectsDetails);
+            //var listObjectsV2Request = new ListObjectsV2Request
+            //{
+            //    BucketName = _bucketName,
+            //    Prefix = image.FileName
+            //};
+
+            //var listObjects = await _s3Client.ListObjectsV2Async(listObjectsV2Request);
+
+            //var s3ObjectsDetails = listObjects.S3Objects.Select(s =>
+            //{
+            //    var urlRequest = new GetPreSignedUrlRequest
+            //    {
+            //        BucketName = _bucketName,
+            //        Key = s.Key,
+            //        Expires = DateTime.UtcNow.AddYears(1)
+            //    };
+            //    return new HandleS3Images
+            //    {
+            //        ImageName = s.Key,
+            //        ImagePresignedUrl = _s3Client.GetPreSignedURL(urlRequest),
+            //    };
+            //});
+
+            //return Ok(s3ObjectsDetails);
         }
 
         return StatusCode((int)HttpStatusCode.InternalServerError, "Error uploading file to S3");
